@@ -1,0 +1,19 @@
+# Local database
+Tutorplanner/tutorplanner.db
+Tutorplanner/tutorplanner.db-shm
+Tutorplanner/tutorplanner.db-wal
+
+# Build output
+Tutorplanner/bin/
+Tutorplanner/obj/
+.vs/
+Tutorplanner/.vs/
+
+# User-specific files
+*.user
+*.suo
+
+# Local tooling and credentials
+.cloudflared/
+*.pem
+*.key

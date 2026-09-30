@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="ka">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>გაკვეთილის დაჯავშნა</title>
+  <style>body{font-family:Arial,sans-serif;background:#f4f8f7;color:#173b3b;margin:0}.wrap{max-width:680px;margin:40px auto;padding:24px}.card{background:white;padding:28px;border-radius:14px;box-shadow:0 8px 28px #173b3b18}label{display:block;margin:14px 0 6px;font-weight:bold}input,textarea{box-sizing:border-box;width:100%;padding:11px;border:1px solid #b8d8d5;border-radius:7px;font:inherit}.slots{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.slot{border:1px solid #65aaa5;background:#fff;color:#17645f;border-radius:7px;padding:9px 12px;cursor:pointer}.slot.selected{background:#17645f;color:white}.button{margin-top:20px;background:#17645f;color:#fff;border:0;border-radius:7px;padding:12px 18px;font:inherit;cursor:pointer}.message{margin-top:16px;padding:12px;border-radius:7px;background:#e8f6ed}.error{background:#fff0eb;color:#8e3828}.muted{color:#607878}</style>
+</head>
+</main><script>
+// TODO: Replace with your deployment domain. This explicit placeholder prevents the static site from accidentally submitting to a real endpoint.
+const API='https://YOUR-TUNNEL-DOMAIN.example/api/public-booking';let chosen=null;
+const $=id=>document.getElementById(id);$('date').min=new Date().toISOString().slice(0,10);let max=new Date();max.setDate(max.getDate()+30);$('date').max=max.toISOString().slice(0,10);
+$('date').onchange=async()=>{chosen=null;$('slots').innerHTML='<span class="muted">იტვირთება...</span>';try{let r=await fetch(`${API}/availability?date=${$('date').value}`);let data=await r.json();$('slots').innerHTML='';if(!data.slots?.length){$('slots').innerHTML='<span class="muted">ამ თარიღზე თავისუფალი დრო არ არის.</span>';return}data.slots.forEach(value=>{let b=document.createElement('button');b.type='button';b.className='slot';let d=new Date(value);b.textContent=d.toLocaleTimeString('ka-GE',{hour:'2-digit',minute:'2-digit'});b.onclick=()=>{document.querySelectorAll('.slot').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');chosen=value};$('slots').appendChild(b)})}catch(e){show('დროების ჩატვირთვა ვერ მოხერხდა.','error')}};
+$('booking').onsubmit=async e=>{e.preventDefault();if(!chosen){show('გთხოვთ, აირჩიოთ ხელმისაწვდომი დრო.','error');return}let body={name:$('name').value,contact:$('contact').value,subject:$('subject').value,preferredStart:chosen,alternativeStart:null,notes:$('notes').value};try{let r=await fetch(`${API}/requests`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});let data=await r.json();if(!r.ok)throw Error(data.error);show(data.message);$('booking').reset();$('slots').innerHTML='<span class="muted">აირჩიეთ თარიღი.</span>';chosen=null}catch(e){show(e.message||'მოთხოვნის გაგზავნა ვერ მოხერხდა.','error')}};
+function show(text,kind=''){let m=$('message');m.hidden=false;m.className='message '+kind;m.textContent=text}
+</script></body></html>

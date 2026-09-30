@@ -1,0 +1,34 @@
+@page "/working-hours"
+@inject Tutorplanner.Data.TutorDbContext Db
+
+<PageTitle>Working hours</PageTitle>
+
+<div class="page-heading"><div><p class="eyebrow">AVAILABILITY</p><h1>Working hours</h1><p class="text-muted">Public booking slots are offered only inside these hours.</p></div></div>
+
+<div class="section-card"><div class="working-hours-list">@foreach (var item in hours.OrderBy(h => h.Day)) { <div class="working-hour-row"><label class="weekday-option"><input type="checkbox" @bind="item.Enabled" /> @item.Day</label><input type="time" value="@item.Start" @onchange="e => item.Start = e.Value?.ToString() ?? item.Start" class="form-control" disabled="@(!item.Enabled)" /><span>to</span><input type="time" value="@item.End" @onchange="e => item.End = e.Value?.ToString() ?? item.End" class="form-control" disabled="@(!item.Enabled)" /></div> }</div>@if (!string.IsNullOrWhiteSpace(message)) { <div class="alert alert-success mt-3">@message</div> }<button class="btn btn-primary mt-3" @onclick="Save">Save working hours</button></div>
+
+@code {
+	private List<HourForm> hours = new();
+	private string message = string.Empty;
+
+	protected override async Task OnInitializedAsync()
+	{
+		var stored = await Db.WorkingHours.ToListAsync();
+		hours = Enum.GetValues<DayOfWeek>().Select(day => { var item = stored.FirstOrDefault(h => h.Day == day); return new HourForm { Id = item?.Id ?? 0, Day = day, Enabled = item?.IsEnabled ?? false, Start = item?.Start.ToString(@"hh\:mm") ?? "09:00", End = item?.End.ToString(@"hh\:mm") ?? "17:00" }; }).ToList();
+	}
+
+	private async Task Save()
+	{
+		foreach (var item in hours)
+		{
+			if (!TimeSpan.TryParse(item.Start, out var start) || !TimeSpan.TryParse(item.End, out var end) || start >= end) continue;
+			var stored = await Db.WorkingHours.FirstOrDefaultAsync(h => h.Day == item.Day);
+			if (stored is null) Db.WorkingHours.Add(new WorkingHour { Day = item.Day, Start = start, End = end, IsEnabled = item.Enabled });
+			else { stored.Start = start; stored.End = end; stored.IsEnabled = item.Enabled; }
+		}
+		await Db.SaveChangesAsync();
+		message = "Working hours saved.";
+	}
+
+	private sealed class HourForm { public int Id { get; set; } public DayOfWeek Day { get; set; } public bool Enabled { get; set; } public string Start { get; set; } = "09:00"; public string End { get; set; } = "17:00"; }
+}

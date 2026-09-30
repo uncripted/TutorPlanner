@@ -1,0 +1,28 @@
+@page "/calendar"
+@inject Tutorplanner.Data.TutorDbContext Db
+@inject Tutorplanner.Services.TutorPlannerService Planner
+
+<PageTitle>Calendar</PageTitle>
+
+<div class="page-heading"><div><p class="eyebrow">SCHEDULE</p><h1>Calendar</h1><p class="text-muted">See your lessons at a glance.</p></div><NavLink class="btn btn-primary" href="/students">+ Add lesson</NavLink></div>
+
+<div class="calendar-toolbar section-card"><button class="btn btn-light" @onclick="PreviousWeek">‹</button><strong>@weekStart.ToString("MMM d") – @weekStart.AddDays(6).ToString("MMM d, yyyy")</strong><button class="btn btn-light" @onclick="NextWeek">›</button><button class="btn btn-outline-primary ms-auto" @onclick="GoToday">Today</button></div>
+
+<div class="week-grid">
+	@foreach (var day in Enumerable.Range(0, 7).Select(offset => weekStart.AddDays(offset)))
+	{
+		<div class="day-column @(day.Date == DateTime.Today ? "today" : "")"><div class="day-header"><span>@day.ToString("ddd")</span><strong>@day.Day</strong></div>@foreach (var lesson in lessons.Where(l => l.Start.Date == day.Date).OrderBy(l => l.Start)) { <NavLink class="@($"calendar-lesson {(lesson.IsMissed ? "calendar-lesson-missed" : "")}")" href="@($"/student/{lesson.StudentId}")"><strong>@lesson.Start.ToString("h:mm tt")</strong><span>@lesson.Student.Name</span><small>@(lesson.IsMissed ? "Missed" : CurrencyFormatter.Gel(lesson.Rate))</small></NavLink> }</div>
+	}
+</div>
+
+@code {
+	private DateTime weekStart = StartOfWeek(DateTime.Today);
+	private List<Lesson> lessons = new();
+
+	protected override async Task OnInitializedAsync() => await Load();
+	private async Task Load() { var futureLimit = DateTime.Now.AddDays(30); await Planner.GenerateLessonsAsync(futureLimit); lessons = await Db.Lessons.Include(l => l.Student).Where(l => !l.IsCancelled && l.Start >= weekStart && l.Start < weekStart.AddDays(7) && l.Start <= futureLimit).OrderBy(l => l.Start).ToListAsync(); }
+	private async Task PreviousWeek() { weekStart = weekStart.AddDays(-7); await Load(); }
+	private async Task NextWeek() { weekStart = weekStart.AddDays(7); await Load(); }
+	private async Task GoToday() { weekStart = StartOfWeek(DateTime.Today); await Load(); }
+	private static DateTime StartOfWeek(DateTime date) { var diff = (7 + (date.DayOfWeek - DayOfWeek.Monday)) % 7; return date.Date.AddDays(-diff); }
+}

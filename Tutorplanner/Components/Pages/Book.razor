@@ -1,0 +1,53 @@
+@page "/book"
+@inject Tutorplanner.Services.TutorPlannerService Planner
+
+<PageTitle>გაკვეთილის მოთხოვნა</PageTitle>
+
+<div class="public-booking-shell">
+	<div class="public-booking-intro"><p class="eyebrow">გაკვეთილის მოთხოვნა</p><h1>იპოვეთ სწავლისთვის სასურველი დრო</h1><p>აირჩიეთ ხელმისაწვდომი დრო და გამოგზავნეთ მოთხოვნა. მასწავლებელი მას განიხილავს და დაგიკავშირდებათ გაკვეთილის დასადასტურებლად.</p></div>
+	<div class="section-card">
+		<EditForm Model="form" OnValidSubmit="Submit">
+			<div class="row g-3">
+				<div class="col-md-6"><label>თქვენი სახელი *</label><InputText @bind-Value="form.Name" class="form-control" /></div>
+				<div class="col-md-6"><label>ელფოსტა ან ტელეფონი *</label><InputText @bind-Value="form.Contact" class="form-control" /></div>
+				<div class="col-md-6"><label>საგანი <span class="text-muted">(არასავალდებულო)</span></label><InputText @bind-Value="form.Subject" class="form-control" placeholder="მაგალითად: მათემატიკა, ინგლისური..." /></div>
+				<div class="col-md-6"><label>სასურველი თარიღი</label><InputDate @bind-Value="selectedDate" class="form-control" @onchange="LoadSlots" /></div>
+				<div class="col-12"><label>ხელმისაწვდომი დრო</label>@if (slots.Count == 0) { <p class="form-help">ამ თარიღზე თავისუფალი დრო არ არის.</p> } else { <div class="slot-picker">@foreach (var slot in slots) { <button type="button" class="slot-button @(form.PreferredStart == slot ? "selected" : "")" @onclick="() => ChooseSlot(slot)">@slot.ToString("HH:mm")</button> }</div> }</div>
+				<div class="col-md-6"><label>ალტერნატიული თარიღი <span class="text-muted">(არასავალდებულო)</span></label><InputDate @bind-Value="alternativeDate" class="form-control" /></div>
+				<div class="col-md-6"><label>ალტერნატიული დრო <span class="text-muted">(არასავალდებულო, სთ:წთ)</span></label><InputText @bind-Value="alternativeTime" class="form-control" placeholder="14:00" /></div>
+				<div class="col-12"><label>დამატებითი შეტყობინება <span class="text-muted">(არასავალდებულო)</span></label><InputTextArea @bind-Value="form.Notes" class="form-control" rows="3" placeholder="მიუთითეთ გაკვეთილთან დაკავშირებული დამატებითი ინფორმაცია." /></div>
+			</div>
+			@if (!string.IsNullOrWhiteSpace(error)) { <div class="alert alert-danger mt-3">@error</div> }
+			@if (!string.IsNullOrWhiteSpace(success)) { <div class="alert alert-success mt-3">@success</div> }
+			<button class="btn btn-primary mt-3" type="submit">მოთხოვნის გაგზავნა</button>
+		</EditForm>
+	</div>
+</div>
+
+@code {
+	private BookingRequest form = new();
+	private DateTime selectedDate = DateTime.Today.AddDays(1);
+	private DateTime alternativeDate = DateTime.Today.AddDays(2);
+	private string alternativeTime = "10:00";
+	private List<DateTime> slots = new();
+	private string error = string.Empty;
+	private string success = string.Empty;
+
+	protected override async Task OnInitializedAsync() => await LoadSlots();
+
+	private async Task LoadSlots() => slots = await Planner.GetAvailableSlotsAsync(selectedDate);
+	private void ChooseSlot(DateTime slot) => form.PreferredStart = slot;
+
+	private async Task Submit()
+	{
+		error = string.Empty;
+		success = string.Empty;
+		if (string.IsNullOrWhiteSpace(form.Name) || string.IsNullOrWhiteSpace(form.Contact)) { error = "გთხოვთ, მიუთითოთ თქვენი სახელი და საკონტაქტო ინფორმაცია."; return; }
+		if (form.PreferredStart == default) { error = "აირჩიეთ ხელმისაწვდომი დრო."; return; }
+		if (TimeSpan.TryParse(alternativeTime, out var alternativeClock)) form.AlternativeStart = alternativeDate.Date + alternativeClock;
+		form.Subject = string.IsNullOrWhiteSpace(form.Subject) ? "ზოგადი გაკვეთილი" : form.Subject;
+		await Planner.SubmitBookingAsync(form);
+		success = "თქვენი მოთხოვნა გაიგზავნა. მასწავლებელი მას განიხილავს და დასადასტურებლად დაგიკავშირდებათ.";
+		form = new BookingRequest();
+	}
+}

@@ -1,0 +1,88 @@
+@page "/student/{Id:int}/add-lesson"
+@inject Tutorplanner.Data.TutorDbContext Db
+@inject Tutorplanner.Services.TutorPlannerService Planner
+@inject NavigationManager Nav
+
+<PageTitle>Add lesson</PageTitle>
+
+<div class="page-heading"><div><p class="eyebrow">SCHEDULE</p><h1>Add lesson</h1><p class="text-muted">Create one lesson or several weekly lessons in one go.</p></div><NavLink class="btn btn-light" href="@($"/student/{Id}")">Back to student</NavLink></div>
+
+@if (student is null)
+{
+	<div class="section-card empty-state"><h2>Student not found</h2><NavLink href="/students">Back to students</NavLink></div>
+}
+else
+{
+	<div class="section-card">
+		<EditForm Model="form" OnValidSubmit="SaveLesson">
+			<DataAnnotationsValidator />
+			<div class="form-switcher"><button type="button" class="@(form.IsRecurring ? "" : "selected")" @onclick="() => form.IsRecurring = false">One-time lesson</button><button type="button" class="@(form.IsRecurring ? "selected" : "")" @onclick="() => form.IsRecurring = true">Weekly lessons</button></div>
+			<div class="row g-3 mt-2">
+				<div class="col-md-6"><label>@(form.IsRecurring ? "First lesson date" : "Date")</label><InputDate @bind-Value="form.Date" class="form-control" /></div>
+				<div class="col-md-6"><label>Time</label><div class="time-entry"><input type="time" value="@form.Time" @onchange="OnClockChanged" class="form-control" /><button type="button" class="btn btn-light" @onclick="ToggleDirectTime">@(form.DirectTime ? "Use clock" : "Type directly")</button></div>@if (form.DirectTime) { <InputText @bind-Value="form.Time" class="form-control mt-2" placeholder="e.g. 14:30" /> }<small class="form-help">Use the clock control or type a time directly.</small></div>
+				@if (form.IsRecurring)
+				{
+					<div class="col-12"><label>Repeat every week on</label><div class="weekday-picker">@foreach (var day in Enum.GetValues<DayOfWeek>()) { <label class="weekday-option"><input type="checkbox" checked="@form.SelectedDays.Contains(day)" @onchange="() => ToggleDay(day)" /> @day.ToString()[..3]</label> }</div><small class="form-help">Select multiple days to create several weekly schedules at once.</small></div>
+					<div class="col-md-6"><label>Repeat until <span class="text-muted">(optional)</span></label><InputDate @bind-Value="form.EndDate" class="form-control" /></div>
+				}
+				<div class="col-md-6"><label>Duration (minutes)</label><InputNumber TValue="int" @bind-Value="form.DurationMinutes" class="form-control" /></div>
+				<div class="col-md-6"><label>Rate for each lesson *</label><InputNumber TValue="decimal" @bind-Value="form.Rate" class="form-control" /><ValidationMessage For="@(() => form.Rate)" /></div>
+			</div>
+			@if (!string.IsNullOrWhiteSpace(error)) { <div class="alert alert-danger mt-3">@error</div> }
+			<div class="form-actions"><button type="submit" class="btn btn-primary">@(form.IsRecurring ? "Create weekly lessons" : "Create lesson")</button><NavLink class="btn btn-light" href="@($"/student/{Id}")">Cancel</NavLink></div>
+		</EditForm>
+	</div>
+}
+
+@code {
+	[Parameter] public int Id { get; set; }
+	private Student? student;
+	private LessonForm form = new();
+	private string error = string.Empty;
+
+	protected override async Task OnInitializedAsync()
+	{
+		student = await Db.Students.FindAsync(Id);
+		form.SelectedDays.Add(DateTime.Today.DayOfWeek);
+	}
+
+	private void ToggleDirectTime() => form.DirectTime = !form.DirectTime;
+	private void OnClockChanged(ChangeEventArgs args) => form.Time = args.Value?.ToString() ?? form.Time;
+	private void ToggleDay(DayOfWeek day) { if (!form.SelectedDays.Add(day)) form.SelectedDays.Remove(day); }
+
+	private async Task SaveLesson()
+	{
+		error = string.Empty;
+		if (student is null || form.Rate <= 0 || form.DurationMinutes <= 0) { error = "Enter a valid duration and rate."; return; }
+		if (!TimeSpan.TryParse(form.Time, out var time)) { error = "Enter a valid time such as 10:00."; return; }
+
+		if (form.IsRecurring)
+		{
+			if (form.SelectedDays.Count == 0) { error = "Select at least one weekday."; return; }
+			foreach (var day in form.SelectedDays.OrderBy(d => d))
+			{
+				Db.RecurringLessons.Add(new RecurringLesson { StudentId = Id, DayOfWeek = day, TimeOfDay = time, StartDate = form.Date.Date, EndDate = form.EndDate?.Date, DurationMinutes = form.DurationMinutes, Rate = form.Rate });
+			}
+			await Db.SaveChangesAsync();
+			await Planner.GenerateLessonsAsync(DateTime.Today.AddMonths(12));
+		}
+		else
+		{
+			Db.Lessons.Add(new Lesson { StudentId = Id, Start = form.Date.Date + time, DurationMinutes = form.DurationMinutes, Rate = form.Rate });
+			await Db.SaveChangesAsync();
+		}
+		Nav.NavigateTo($"/student/{Id}");
+	}
+
+	private sealed class LessonForm
+	{
+		public DateTime Date { get; set; } = DateTime.Today;
+		public DateTime? EndDate { get; set; }
+		public string Time { get; set; } = "10:00";
+		public int DurationMinutes { get; set; } = 60;
+		public decimal Rate { get; set; }
+		public bool IsRecurring { get; set; }
+		public bool DirectTime { get; set; }
+		public HashSet<DayOfWeek> SelectedDays { get; set; } = new();
+	}
+}

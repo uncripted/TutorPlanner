@@ -1,0 +1,72 @@
+@page "/recurring/{RuleId:int}/edit"
+@inject Tutorplanner.Data.TutorDbContext Db
+@inject Tutorplanner.Services.TutorPlannerService Planner
+@inject NavigationManager Nav
+
+<PageTitle>Edit weekly schedule</PageTitle>
+
+<div class="page-heading"><div><p class="eyebrow">SCHEDULE</p><h1>Edit weekly schedule</h1><p class="text-muted">Choose exactly which lessons should change.</p></div><NavLink class="btn btn-light" href="@($"/student/{rule?.StudentId}")">Back to student</NavLink></div>
+
+@if (rule is null)
+{
+	<div class="section-card empty-state"><h2>Schedule not found</h2><NavLink href="/students">Back to students</NavLink></div>
+}
+else
+{
+	<div class="section-card">
+		<div class="callout mb-4"><strong>Current schedule</strong><span>@rule.DayOfWeek at @rule.TimeOfDay.ToString(@"hh\:mm") · @CurrencyFormatter.Gel(rule.Rate) per lesson</span></div>
+		<EditForm Model="form" OnValidSubmit="Save">
+			<div class="mb-4"><label>Edit scope</label><InputSelect TValue="ScheduleEditScope" @bind-Value="form.Scope" class="form-select"><option value="@ScheduleEditScope.OneOccurrence">Only one occurrence</option><option value="@ScheduleEditScope.FromThisDate">This date and future lessons</option><option value="@ScheduleEditScope.EntireSchedule">Entire schedule, including past lessons</option></InputSelect><small class="form-help">Past lesson rows and payment records are never deleted.</small></div>
+			@if (form.Scope == ScheduleEditScope.OneOccurrence)
+			{
+				<div class="mb-3"><label>Occurrence to edit</label><InputDate @bind-Value="form.OccurrenceDate" class="form-control" /></div>
+			}
+			@if (form.Scope == ScheduleEditScope.FromThisDate || form.Scope == ScheduleEditScope.EntireSchedule)
+			{
+				<div class="mb-3"><label>@(form.Scope == ScheduleEditScope.EntireSchedule ? "Schedule start date" : "Changes start from")</label><InputDate @bind-Value="form.EffectiveDate" class="form-control" /></div>
+			}
+			<div class="row g-3"><div class="col-md-6"><label>Weekly day</label><InputSelect @bind-Value="form.Day" class="form-select">@foreach (var day in Enum.GetValues<DayOfWeek>()) { <option value="@day">@day</option> }</InputSelect></div><div class="col-md-6"><label>Time</label><div class="time-entry"><input type="time" value="@form.Time" @onchange="OnClockChanged" class="form-control" /><button type="button" class="btn btn-light" @onclick="ToggleDirectTime">@(form.DirectTime ? "Use clock" : "Type directly")</button></div>@if (form.DirectTime) { <InputText @bind-Value="form.Time" class="form-control mt-2" placeholder="e.g. 14:30" /> }</div><div class="col-md-6"><label>Duration</label><InputNumber TValue="int" @bind-Value="form.DurationMinutes" class="form-control" /></div><div class="col-md-6"><label>Rate per lesson</label><InputNumber TValue="decimal" @bind-Value="form.Rate" class="form-control" /></div><div class="col-md-6"><label>Repeat until <span class="text-muted">(optional)</span></label><InputDate TValue="DateTime?" @bind-Value="form.EndDate" class="form-control" /></div></div>
+			@if (!string.IsNullOrWhiteSpace(error)) { <div class="alert alert-danger mt-3">@error</div> }
+			<div class="form-actions"><button class="btn btn-primary" type="submit">Save schedule changes</button><NavLink class="btn btn-light" href="@($"/student/{rule.StudentId}")">Cancel</NavLink></div>
+		</EditForm>
+	</div>
+}
+
+@code {
+	[Parameter] public int RuleId { get; set; }
+	private RecurringLesson? rule;
+	private EditFormModel form = new();
+	private string error = string.Empty;
+
+	protected override async Task OnInitializedAsync()
+	{
+		rule = await Db.RecurringLessons.FindAsync(RuleId);
+		if (rule is null) return;
+		form = new EditFormModel { Day = rule.DayOfWeek, Time = rule.TimeOfDay.ToString(@"hh\:mm"), EffectiveDate = rule.StartDate.Date, OccurrenceDate = rule.StartDate.Date, EndDate = rule.EndDate, DurationMinutes = rule.DurationMinutes, Rate = rule.Rate };
+	}
+
+	private void ToggleDirectTime() => form.DirectTime = !form.DirectTime;
+	private void OnClockChanged(ChangeEventArgs args) => form.Time = args.Value?.ToString() ?? form.Time;
+
+	private async Task Save()
+	{
+		error = string.Empty;
+		if (rule is null || form.Rate <= 0 || form.DurationMinutes <= 0 || !TimeSpan.TryParse(form.Time, out var time)) { error = "Enter a valid time, duration, and rate."; return; }
+		if (form.Scope == ScheduleEditScope.FromThisDate && form.EffectiveDate.Date <= DateTime.Today.AddDays(-1)) { error = "Choose today or a future date for future-only changes."; return; }
+		await Planner.EditRecurringScheduleAsync(RuleId, form.Scope, form.EffectiveDate, form.Day, time, form.DurationMinutes, form.Rate, form.EndDate, form.OccurrenceDate);
+		Nav.NavigateTo($"/student/{rule.StudentId}");
+	}
+
+	private sealed class EditFormModel
+	{
+		public ScheduleEditScope Scope { get; set; } = ScheduleEditScope.FromThisDate;
+		public DateTime EffectiveDate { get; set; } = DateTime.Today;
+		public DateTime OccurrenceDate { get; set; } = DateTime.Today;
+		public DateTime? EndDate { get; set; }
+		public DayOfWeek Day { get; set; }
+		public string Time { get; set; } = "10:00";
+		public int DurationMinutes { get; set; } = 60;
+		public decimal Rate { get; set; }
+		public bool DirectTime { get; set; }
+	}
+}

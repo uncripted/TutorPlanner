@@ -1,0 +1,10 @@
+# Use this configuration with a separate public hostname for the booking API.
+# Do not expose the complete Tutorplanner website through the tunnel.
+tunnel: YOUR-TUNNEL-ID
+credentials-file: C:\Users\YOUR-USER\.cloudflared\YOUR-TUNNEL-ID.json
+
+ingress:
+  - hostname: booking-api.yourdomain.example
+    path: /api/public-booking/.*
+    service: http://localhost:5167
+  - service: http_status:404

@@ -1,0 +1,76 @@
+﻿@page "/"
+@inject Tutorplanner.Data.TutorDbContext Db
+@inject Tutorplanner.Services.TutorPlannerService Planner
+
+<PageTitle>Dashboard</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+	<div>
+		<p class="eyebrow">YOUR TUTOR DASHBOARD</p>
+		<h1>Good day</h1>
+		<p class="text-muted mb-0">Keep lessons, payments, and student balances in one place.</p>
+	</div>
+	<NavLink class="btn btn-primary" href="/students">Manage students</NavLink>
+</div>
+
+<div class="row g-3 mb-4">
+	<div class="col-sm-6 col-xl-3"><div class="stat-card"><span>Active students</span><strong>@studentCount</strong></div></div>
+	<div class="col-sm-6 col-xl-3"><div class="stat-card"><span>Upcoming lessons</span><strong>@upcomingCount</strong></div></div>
+	<div class="col-sm-6 col-xl-3"><div class="stat-card"><span>Unpaid lessons</span><strong>@unpaidCount</strong></div></div>
+	<div class="col-sm-6 col-xl-3"><div class="stat-card stat-card-accent"><span>Outstanding balance</span><strong>@CurrencyFormatter.Gel(outstanding)</strong></div></div>
+	<div class="col-sm-6 col-xl-3"><div class="stat-card"><span>Estimated income · @DateTime.Today.ToString("MMMM")</span><strong>@CurrencyFormatter.Gel(estimatedIncome)</strong></div></div>
+</div>
+
+<div class="row g-4">
+	<div class="col-lg-7">
+		<div class="section-card">
+			<div class="section-heading"><h2>Next lessons</h2><NavLink href="/calendar">View calendar</NavLink></div>
+			@if (nextLessons.Count == 0)
+			{
+				<div class="empty-state">No lessons scheduled. Add a student and create a lesson to get started.</div>
+			}
+			else
+			{
+				@foreach (var lesson in nextLessons)
+				{
+					<div class="lesson-row">
+						<div class="date-pill"><strong>@lesson.Start.ToString("dd")</strong><span>@lesson.Start.ToString("MMM")</span></div>
+						<div><strong>@lesson.Student.Name</strong><small>@lesson.Start.ToString("ddd, h:mm tt")</small></div>
+						<span class="ms-auto money">@CurrencyFormatter.Gel(lesson.Rate)</span>
+					</div>
+				}
+			}
+		</div>
+	</div>
+	<div class="col-lg-5">
+		<div class="section-card">
+			<div class="section-heading"><h2>Quick actions</h2></div>
+			<div class="quick-actions">
+				<NavLink href="/students"><span>+</span><div><strong>Add a student</strong><small>Create a student profile</small></div></NavLink>
+				<NavLink href="/calendar"><span>▣</span><div><strong>Plan a lesson</strong><small>Add a one-time or weekly lesson</small></div></NavLink>
+				<NavLink href="/students"><span>€</span><div><strong>Record a payment</strong><small>Open a student account</small></div></NavLink>
+			</div>
+		</div>
+	</div>
+</div>
+
+@code {
+	private int studentCount;
+	private int upcomingCount;
+	private int unpaidCount;
+	private decimal outstanding;
+	private decimal estimatedIncome;
+	private List<Tutorplanner.Models.Lesson> nextLessons = new();
+
+	protected override async Task OnInitializedAsync()
+	{
+		await Planner.GenerateLessonsAsync(DateTime.Today.AddMonths(3));
+		studentCount = await Db.Students.CountAsync(s => s.IsActive);
+		upcomingCount = await Db.Lessons.CountAsync(l => !l.IsCancelled && l.Start >= DateTime.Now && l.Start <= DateTime.Today.AddMonths(1));
+		var lessons = await Db.Lessons.Where(l => !l.IsCancelled && !l.IsMissed && l.Start <= DateTime.Now).ToListAsync();
+		unpaidCount = lessons.Count(l => l.Rate > l.PaidAmount);
+		outstanding = lessons.Sum(l => Math.Max(0, l.Rate - l.PaidAmount));
+		estimatedIncome = await Planner.GetEstimatedIncomeAsync(DateTime.Today);
+		nextLessons = await Db.Lessons.Include(l => l.Student).Where(l => !l.IsCancelled && l.Start >= DateTime.Now).OrderBy(l => l.Start).Take(5).ToListAsync();
+	}
+}

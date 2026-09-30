@@ -1,0 +1,33 @@
+@page "/statistics"
+@inject Tutorplanner.Data.TutorDbContext Db
+@inject Tutorplanner.Services.TutorPlannerService Planner
+
+<PageTitle>Statistics</PageTitle>
+
+<div class="page-heading"><div><p class="eyebrow">INSIGHTS</p><h1>Statistics</h1><p class="text-muted">A quick view of your teaching and income.</p></div></div>
+
+<div class="row g-3 mb-4"><div class="col-md-3"><div class="stat-card"><span>Lessons this month</span><strong>@monthLessons</strong></div></div><div class="col-md-3"><div class="stat-card"><span>Completed lessons</span><strong>@completedLessons</strong></div></div><div class="col-md-3"><div class="stat-card"><span>Estimated income</span><strong>@CurrencyFormatter.Gel(estimatedIncome)</strong></div></div><div class="col-md-3"><div class="stat-card stat-card-accent"><span>Payments received</span><strong>@CurrencyFormatter.Gel(paymentsThisMonth)</strong></div></div></div>
+<div class="row g-4"><div class="col-lg-6"><div class="section-card"><div class="section-heading"><h2>By student</h2></div><table class="table"><thead><tr><th>Student</th><th>Lessons</th><th>Value</th></tr></thead><tbody>@foreach (var row in byStudent) { <tr><td>@row.Name</td><td>@row.Lessons</td><td>@CurrencyFormatter.Gel(row.Value)</td></tr> }</tbody></table></div></div><div class="col-lg-6"><div class="section-card"><div class="section-heading"><h2>Recent payments</h2></div>@foreach (var payment in recentPayments) { <div class="lesson-row"><div><strong>@payment.Student.Name</strong><small>@payment.Date.ToString("MMM d, yyyy")</small></div><span class="ms-auto money">@CurrencyFormatter.Gel(payment.Amount)</span></div> }</div></div></div>
+
+@code {
+	private int monthLessons;
+	private int completedLessons;
+	private decimal estimatedIncome;
+	private decimal paymentsThisMonth;
+	private List<StudentRow> byStudent = new();
+	private List<Payment> recentPayments = new();
+
+	protected override async Task OnInitializedAsync()
+	{
+		var start = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+		var end = start.AddMonths(1);
+		await Planner.GenerateLessonsAsync(end.AddMonths(1));
+		var lessons = await Db.Lessons.Include(l => l.Student).Where(l => l.Start >= start && l.Start < end && !l.IsCancelled && !l.IsMissed).ToListAsync();
+		monthLessons = lessons.Count; completedLessons = lessons.Count(l => l.Start <= DateTime.Now); estimatedIncome = lessons.Sum(l => l.Rate);
+		paymentsThisMonth = await Db.Payments.Where(p => p.Date >= start && p.Date < end).SumAsync(p => (decimal?)p.Amount) ?? 0;
+		byStudent = lessons.GroupBy(l => l.Student.Name).Select(g => new StudentRow(g.Key, g.Count(l => l.Start <= DateTime.Now), g.Sum(l => l.Rate))).OrderByDescending(r => r.Value).ToList();
+		recentPayments = await Db.Payments.Include(p => p.Student).OrderByDescending(p => p.Date).ThenByDescending(p => p.Id).Take(10).ToListAsync();
+	}
+
+	private sealed record StudentRow(string Name, int Lessons, decimal Value);
+}

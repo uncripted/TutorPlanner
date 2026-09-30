@@ -1,0 +1,119 @@
+@page "/student/{Id:int}"
+@inject Tutorplanner.Data.TutorDbContext Db
+@inject Tutorplanner.Services.TutorPlannerService Planner
+@inject NavigationManager Nav
+
+<PageTitle>Student account</PageTitle>
+
+@if (student is null)
+{
+	<div class="section-card empty-state"><h2>Student not found</h2><NavLink class="btn btn-primary" href="/students">Back to students</NavLink></div>
+}
+else
+{
+	<div class="page-heading">
+		<div class="d-flex align-items-center gap-3"><span class="avatar avatar-large">@Initials(student.Name)</span><div><p class="eyebrow">STUDENT ACCOUNT</p><h1>@student.Name</h1><p class="text-muted mb-0">@student.Email @if (!string.IsNullOrWhiteSpace(student.Phone)) { <span> · @student.Phone</span> }</p></div></div>
+		<div class="d-flex gap-2"><NavLink class="btn btn-primary" href="@($"/student/{Id}/add-lesson")">+ Add lesson</NavLink><NavLink class="btn btn-light" href="/students">All students</NavLink><button class="btn btn-outline-danger" @onclick="() => confirmDelete = true">Delete student</button></div>
+	</div>
+	@if (confirmDelete)
+	{
+		<div class="alert alert-danger d-flex justify-content-between align-items-center"><span><strong>Delete @student.Name?</strong> This permanently removes the student, payments, schedules, and lessons.</span><span><button class="btn btn-danger btn-sm" @onclick="DeleteStudent">Yes, delete</button> <button class="btn btn-light btn-sm" @onclick="() => confirmDelete = false">Cancel</button></span></div>
+	}
+
+	<div class="row g-3 mb-4"><div class="col-sm-4"><div class="stat-card"><span>Completed lesson value</span><strong>@CurrencyFormatter.Gel(balance.Charged)</strong></div></div><div class="col-sm-4"><div class="stat-card"><span>Payments recorded</span><strong>@CurrencyFormatter.Gel(balance.TotalPayments)</strong></div></div><div class="col-sm-4"><div class="stat-card stat-card-accent"><span>Outstanding</span><strong>@CurrencyFormatter.Gel(balance.Outstanding)</strong></div></div></div>
+
+	<div class="section-card mb-4"><div class="section-heading"><h2>Weekly schedules</h2><NavLink class="btn btn-sm btn-outline-primary" href="@($"/student/{Id}/add-lesson")">+ Add weekly schedule</NavLink></div>@if (recurringSchedules.Count == 0) { <p class="text-muted mb-0">No weekly schedules. Add one to generate lessons automatically.</p> } else { @foreach (var schedule in recurringSchedules) { <div class="schedule-row"><div><strong>@schedule.DayOfWeek at @schedule.TimeOfDay.ToString(@"hh\:mm")</strong><small>@CurrencyFormatter.Gel(schedule.Rate) · @schedule.DurationMinutes minutes · starts @schedule.StartDate.ToString("MMM d, yyyy")</small></div><NavLink class="btn btn-sm btn-light" href="@($"/recurring/{schedule.Id}/edit")">Edit schedule</NavLink></div> } }</div>
+
+	<div class="row g-4">
+		<div class="col-lg-8">
+			<div class="section-card">
+				<div class="section-heading"><h2>Lessons</h2><div><span class="text-muted me-2">@lessons.Count total</span>@if (lessons.Count > 12) { <button class="btn btn-sm btn-light" @onclick="() => showAllLessons = !showAllLessons">@(showAllLessons ? "Show fewer" : "Show all")</button> }</div></div>
+				@if (lessons.Count == 0)
+				{
+					<div class="empty-state">No lessons yet. <NavLink href="@($"/student/{Id}/add-lesson")">Add the first lesson</NavLink>.</div>
+				}
+				else
+				{
+					<div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Date</th><th>Type</th><th>Rate</th><th>Status</th><th></th></tr></thead><tbody>
+					@foreach (var lesson in VisibleLessons)
+					{
+						<tr>
+							<td><strong>@lesson.Start.ToString("ddd, MMM d")</strong><small>@lesson.Start.ToString("h:mm tt") · @lesson.DurationMinutes min</small></td>
+							<td>@(lesson.RecurringLessonId.HasValue ? "Weekly" : "One-time")</td>
+							<td>@CurrencyFormatter.Gel(lesson.Rate)</td>
+							<td>
+								@if (lesson.IsCancelled) { <span class="badge badge-cancelled">Cancelled</span> }
+								else if (lesson.IsMissed) { <span class="badge badge-cancelled">Missed</span> }
+								else if (lesson.IsPaid && lesson.Start > DateTime.Now) { <span class="badge badge-paid">Prepaid</span> }
+								else if (lesson.IsPaid) { <span class="badge badge-paid">Paid</span> }
+								else if (lesson.Start > DateTime.Now) { <span class="badge">Scheduled</span> }
+								else { <span class="badge badge-due">Due @CurrencyFormatter.Gel(Math.Max(0, lesson.Rate - lesson.PaidAmount))</span> }
+							</td>
+							<td class="text-end"><div class="d-flex justify-content-end gap-1">@if (!lesson.IsCancelled && !lesson.IsMissed && !lesson.IsPaid) { <button class="btn btn-sm btn-light" @onclick="() => MarkPaid(lesson)">Mark paid</button> } @if (!lesson.IsCancelled && lesson.Start <= DateTime.Now) { <button class="btn btn-sm btn-light" @onclick="() => ToggleMissed(lesson)">@(lesson.IsMissed ? "Restore" : "Mark missed")</button> }</div></td>
+						</tr>
+					}
+					</tbody></table></div>
+				}
+			</div>
+		</div>
+		<div class="col-lg-4"><div class="section-card"><div class="section-heading"><h2>Record payment</h2></div><EditForm Model="payment" OnValidSubmit="SavePayment"><div class="mb-3"><label>Date</label><InputDate @bind-Value="payment.Date" class="form-control" /></div><div class="mb-3"><label>Amount</label><InputNumber TValue="decimal" @bind-Value="payment.Amount" class="form-control" /></div><div class="mb-3"><label>Note</label><InputText @bind-Value="payment.Notes" class="form-control" placeholder="Optional" /></div>@if (!string.IsNullOrWhiteSpace(paymentMessage)) { <div class="alert alert-info">@paymentMessage</div> }<button class="btn btn-success w-100" type="submit">Record payment</button></EditForm></div></div>
+	</div>
+	<div class="section-card mt-4"><div class="section-heading"><h2>Payment history</h2><span class="text-muted">@payments.Count entries</span></div>@if (payments.Count == 0) { <p class="text-muted mb-0">No payments recorded yet.</p> } else { <div class="table-responsive"><table class="table mb-0"><thead><tr><th>Date</th><th>Note</th><th class="text-end">Amount</th></tr></thead><tbody>@foreach (var item in payments) { <tr><td>@item.Date.ToString("MMM d, yyyy")</td><td>@(string.IsNullOrWhiteSpace(item.Notes) ? "Manual payment" : item.Notes)</td><td class="text-end">@CurrencyFormatter.Gel(item.Amount)</td></tr> }</tbody></table></div> }</div>
+}
+
+@code {
+	[Parameter] public int Id { get; set; }
+	private Student? student;
+	private List<Lesson> lessons = new();
+	private List<RecurringLesson> recurringSchedules = new();
+	private List<Payment> payments = new();
+	private StudentBalance balance = new(0, 0, 0, 0, 0);
+	private PaymentForm payment = new();
+	private string paymentMessage = string.Empty;
+	private bool confirmDelete;
+	private bool showAllLessons;
+	private IEnumerable<Lesson> VisibleLessons => showAllLessons ? lessons : lessons.Take(12);
+
+	protected override async Task OnInitializedAsync() => await Load();
+
+	private async Task Load()
+	{
+		student = await Db.Students.FindAsync(Id);
+		if (student is null) return;
+		var futureLimit = DateTime.Now.AddDays(30);
+		await Planner.GenerateLessonsAsync(futureLimit);
+		lessons = await Db.Lessons.Where(l => l.StudentId == Id && l.Start <= futureLimit).OrderByDescending(l => l.Start).ToListAsync();
+		recurringSchedules = await Db.RecurringLessons.Where(r => r.StudentId == Id && r.IsActive).OrderBy(r => r.DayOfWeek).ToListAsync();
+		payments = await Planner.GetPaymentHistoryAsync(Id);
+		balance = await Planner.GetBalanceAsync(Id);
+	}
+
+	private async Task SavePayment()
+	{
+		var result = await Planner.AddPaymentAsync(Id, payment.Amount, payment.Date, payment.Notes);
+		paymentMessage = result.Message + (result.UnallocatedAmount > 0 ? $" {CurrencyFormatter.Gel(result.UnallocatedAmount)} remains unallocated because all eligible lessons are fully paid or missed." : string.Empty);
+		if (result.Success) { payment = new PaymentForm(); await Load(); }
+	}
+
+	private async Task DeleteStudent()
+	{
+		await Planner.DeleteStudentAsync(Id);
+		Nav.NavigateTo("/students");
+	}
+
+	private async Task ToggleMissed(Lesson lesson)
+	{
+		await Planner.SetMissedAsync(lesson.Id, !lesson.IsMissed);
+		await Load();
+	}
+
+	private async Task MarkPaid(Lesson lesson)
+	{
+		var result = await Planner.MarkLessonPaidAsync(lesson.Id);
+		paymentMessage = result.Message;
+		await Load();
+	}
+
+	private static string Initials(string name) => string.Join(string.Empty, name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(x => x[0])).ToUpperInvariant();
+	private sealed class PaymentForm { public DateTime Date { get; set; } = DateTime.Today; public decimal Amount { get; set; } public string Notes { get; set; } = string.Empty; }
+}

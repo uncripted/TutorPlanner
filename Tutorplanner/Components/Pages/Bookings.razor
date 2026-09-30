@@ -1,0 +1,48 @@
+@page "/bookings"
+@inject Tutorplanner.Data.TutorDbContext Db
+@inject Tutorplanner.Services.TutorPlannerService Planner
+
+<PageTitle>Booking requests</PageTitle>
+
+<div class="page-heading"><div><p class="eyebrow">INBOX</p><h1>Booking requests</h1><p class="text-muted">Review public requests before they become lessons.</p></div><NavLink class="btn btn-light" href="/book">Open public booking page</NavLink></div>
+
+@if (requests.Count == 0)
+{
+	<div class="section-card empty-state"><h2>No booking requests</h2><p>New requests from the public booking page will appear here.</p></div>
+}
+else
+{
+	@foreach (var request in requests)
+	{
+		<div class="section-card mb-3"><div class="d-flex justify-content-between gap-3"><div><h2>@request.Name</h2><p class="text-muted mb-1">@request.Contact · @request.Subject</p><p class="mb-1"><strong>Preferred:</strong> @request.PreferredStart.ToString("ddd, MMM d · h:mm tt")</p>@if (request.AlternativeStart.HasValue) { <p class="mb-1"><strong>Alternative:</strong> @request.AlternativeStart.Value.ToString("ddd, MMM d · h:mm tt")</p> }<p class="text-muted">@request.Notes</p></div><span class="badge">@request.Status</span></div>@if (request.Status == BookingStatus.Pending) { var approval = approvals[request.Id]; <div class="booking-approval row g-2 align-items-end"><div class="col-md-3"><label>Student</label><InputSelect TValue="int" @bind-Value="approval.StudentId" class="form-select"><option value="0">Select student</option>@foreach (var student in students) { <option value="@student.Id">@student.Name</option> }</InputSelect></div><div class="col-md-2"><label>Date</label><InputDate @bind-Value="approval.Date" class="form-control" /></div><div class="col-md-2"><label>Time</label><InputText @bind-Value="approval.Time" class="form-control" /></div><div class="col-md-2"><label>Rate (GEL)</label><InputNumber TValue="decimal" @bind-Value="approval.Rate" class="form-control" /></div><div class="col-md-1"><label>Minutes</label><InputNumber TValue="int" @bind-Value="approval.Duration" class="form-control" /></div><div class="col-md-2"><button class="btn btn-primary me-1" @onclick="() => Approve(request)">Approve</button><button class="btn btn-light" @onclick="() => Reject(request)">Reject</button></div></div>}</div>
+	}
+}
+
+@code {
+	private List<BookingRequest> requests = new();
+	private List<Student> students = new();
+	private Dictionary<int, ApprovalModel> approvals = new();
+
+	protected override async Task OnInitializedAsync()
+	{
+		requests = await Db.BookingRequests.OrderByDescending(r => r.SubmittedAt).ToListAsync();
+		students = await Db.Students.Where(s => s.IsActive).OrderBy(s => s.Name).ToListAsync();
+		foreach (var request in requests) approvals[request.Id] = new ApprovalModel { Date = request.PreferredStart.Date, Time = request.PreferredStart.ToString("HH:mm") };
+	}
+
+	private async Task Approve(BookingRequest request)
+	{
+		var model = approvals[request.Id];
+		if (model.StudentId == 0 || !TimeSpan.TryParse(model.Time, out var time)) return;
+		await Planner.ApproveBookingAsync(request.Id, model.StudentId, model.Date.Date + time, model.Duration, model.Rate);
+		requests = await Db.BookingRequests.OrderByDescending(r => r.SubmittedAt).ToListAsync();
+	}
+
+	private async Task Reject(BookingRequest request)
+	{
+		await Planner.RejectBookingAsync(request.Id);
+		request.Status = BookingStatus.Rejected;
+	}
+
+	private sealed class ApprovalModel { public int StudentId { get; set; } public DateTime Date { get; set; } = DateTime.Today; public string Time { get; set; } = "10:00"; public int Duration { get; set; } = 60; public decimal Rate { get; set; } }
+}
